@@ -1,22 +1,8 @@
 /*
- Copyright (C) 2011 J. Coliz <maniacbug@ymail.com>
+ Happy Home radio Server V1
 
- This program is free software; you can redistribute it and/or
- modify it under the terms of the GNU General Public License
- version 2 as published by the Free Software Foundation.
+ This is server es based on the TMRh20 Library from TMRh and collaborators.
 
- 03/17/2013 : Charles-Henri Hallard (http://hallard.me)
-              Modified to use with Arduipi board http://hallard.me/arduipi
-						  Changed to use modified bcm2835 and RF24 library
-TMRh20 2014 - Updated to work with optimized RF24 Arduino library
-
- */
-
-/**
- * Example RF Radio Ping Pair
- *
- * This is an example of how to use the RF24 class on RPi, communicating to an Arduino running
- * the GettingStarted sketch.
  */
 
 
@@ -33,24 +19,54 @@ TMRh20 2014 - Updated to work with optimized RF24 Arduino library
 
 using namespace std;
 
+/*********************************************************************************************************************/
+//Compara dos arreglos de caracteres. El parametro length indica la longitud de ambos arreglos
+//a arreglo 1
+//b arreglo 2
+//length longitud de los arreglos
+bool CompareCharArray(unsigned char * a, unsigned char * b, int length)
+{
+
+    int i = 0;
+    while(a[i] == b[i])
+    {
+        i++;
+    }
+
+    return i < length? true: false;
+}
+
+
+void CopyCharArray(unsigned char * source, unsigned char * dest, int length)
+{
+    for(int i = 0; i < length; i++)
+    {
+        dest[i] = source[i];
+    }
+}
+
+
+
 class Address
 {
 
     public:
     
 
-    unsigned char address[5];
+    unsigned char *address;
 
     bool isAssigned;
 
     Address()
     {
         isAssigned = false;
+        address = new unsigned char[5];
     }
 
     Address(unsigned char * addressParam)
     {
         isAssigned = false;
+        address = new unsigned char[5];
         for(int i = 0; i < 5; i++)
         {
             address[i] = addressParam[i];
@@ -61,6 +77,7 @@ class Address
     Address(unsigned char * addressParam, bool isAssigned)
     {
         this->isAssigned = isAssigned;
+        address = new unsigned char[5];
         for(int i = 0; i < 5; i++)
         {
             address[i] = addressParam[i];
@@ -140,15 +157,23 @@ class RFNode
 
 class Node
 {
+    int childsCounter;
+    
     public:
     RFNode rfNode;
-    Node    * childs;
-    Node    *  next;
+    Node    *childs;
+    Node    *next;
+    Node    *father;
 
     Node(unsigned char nodeId, unsigned char * address)
     {
         rfNode.nodeId = nodeId;
         rfNode.address = address;
+        rfNode.PrintAddress(0);
+        childsCounter = 0;
+        childs = NULL;
+        next = NULL;
+        father = NULL;
     }
 
 
@@ -156,7 +181,7 @@ class Node
     Node * AddChild(unsigned char childId, unsigned char * childAddress)
     {
         Node * child = new Node(childId, childAddress);
-
+        father = this;
         // No existe ningun nodo hijo
         if(childs == NULL)
         {
@@ -174,45 +199,72 @@ class Node
             
             search->next = child;
         }
+
+        childsCounter++;
         
+       
         return child;
     }
 
+    int GetChildsCount(){ return childsCounter; }
 
-    std::list<Address> GetChildsAddresses()
+    unsigned char GetFatherId() { return father->rfNode.nodeId; }
+
+    //Obtiene las direcciones de los nodos hijos
+    unsigned char ** GetChildsAddresses()
     {
-
+        std::list<Address> addresses;
+        unsigned char **addressesAsCharArray = NULL;
         // No existe ningun nodo hijo
-        if(childs == NULL)
-        {
-            return NULL;
-        }
-        else
+        if(childs != NULL)
         {
             Node * search = this->childs;
-            while (search != NULL && search->next != NULL)
+            while (search != NULL)
             {
+                // Se inserta la direccion
+                addresses.push_back(Address(search->rfNode.address, true));
+
                 search = search->next;
             }
-            
-            search->next = child;
 
+            addressesAsCharArray = new unsigned char*[addresses.size()];
+            int index = 0;
+            for (std::list<Address>::iterator it = addresses.begin(); it != addresses.end(); ++it)
+            {
+                addressesAsCharArray[index] = new unsigned char[5];
+                CopyCharArray(it->address, addressesAsCharArray[index], 5);
+                index++;
+            }
+
+            
         }
+        // int len = addresses.size();
+        // cout << "Imprimiendo las direcciones: " << len << "\n";
+        // for(int i = 0; i < len; i++)
+        // {
+        //     for(int j = 0; j < 5; j++)
+        //     {
+        //         printf("%d",addressesAsCharArray[i][j]); 
+        //     }
+        //         cout<<"\n";
+        // }
+
+        return addressesAsCharArray;
     }
 };
 
 
 ////////////////////////////////////////////////////////////////////////////////////
-// Declaracion de variables globales
+// Declaracion es estructuras
 //Estructura  en modo normal para el envio/recepcion de datos
 struct dataStruct
 {
-  unsigned char toNodeId;       //Indica el nodo al que va dirigido el mensaje
-  unsigned char fromNodeId;     //Indica el nodo de quien viene el mensaje
-  unsigned char operationType;  //Indica el tipo de operacion
-  unsigned char floatValue[6];           // Es usado para enviar/recibir un valor de punto flotante, generalmente valores de sensores
+  uint8_t toNodeId;       //Indica el nodo al que va dirigido el mensaje
+  uint8_t fromNodeId;     //Indica el nodo de quien viene el mensaje
+  uint8_t operationType;  //Indica el tipo de operacion
+  uint8_t floatValue[5];           // Es usado para enviar/recibir un valor de punto flotante, generalmente valores de sensores
   bool  onOffValue;             // Es usado para enviar/recibir un valor de tipo booleano, generalemnte para valores de encendido/apagado
-  char  value;                  // Es usado para enviar/recibir valor de tipo entero/caracter, generalmente para valores enteros
+  uint8_t  value;                  // Es usado para enviar/recibir valor de tipo entero/caracter, generalmente para valores enteros
   
 } dataForSend, dataForReceive;
 
@@ -228,35 +280,63 @@ struct syncStruct
    
 } syncDataForSend, syncDataForReceive;
 
-
+//////////////////////////////////////////////////////////////////////////////////////
+// Declaracion de variables globales
 // Raiz del arbol de la red de nodos
 Node * root;
 
 // Lista de las direcciones usadas por el servidor
 std::list<Address> addresses;
 
+// Indica el numero de nodos que estan conectados
+unsigned char nodesCount = 0;
+
+// Indica el modo en que se encuentra el servidor
+uint8_t mode;
+
+// Id temporal del nodo que se esta activando
+unsigned char tempNodeIdForActivate[13] = { '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0' };
+
+// Nodo que fue activado y que esta pendiente por confirmar su activacion. Cuando el nodo se activa guarda este este nodo temporal y empieza a sensar normalmente, por eso cuando se recibe
+// un mensaje cuando el servidor esta en modo activacion se debe de verificar si el mensaje proviene de este nodo, si es asi se debe de notificar
+// a el servidor web para que detenga el proceso de activacion en caso de que aun no se haya terminado
+Node *nodeActivationPending = NULL;
+
+unsigned char fatherIdOfTheNodeActivationPending = 0;
+
+// Nombre del archivo que contiene las direcciones
+char addressesFileName[] = {"addresses.txt"};
+
+// Nombre del archivo que contiene el registro de los nodos
+char nodesFileName[] = {"nodes.txt"};
+
+//Por defecto, el servidor se establece en modo normal operativo
+uint8_t command;
+
+//////////////////////////////////////////////////////////////////////////////////////
+// Declaracion de constantes
 //Identificador usado para hacer broadcast a los nodos.
 const unsigned char NODEID_FOR_BROADCAST = 255;
 
 //Operaciones para los nodos RF
-const unsigned char RF_JUST_DETECTING_OPERATION     = 0;
-const unsigned char RF_REQUEST_BROADCAST_MODE       = 1;
-const unsigned char RF_REQUEST_ADDRESS              = 2;
-const unsigned char RF_RESPONSE_ADDRESS             = 3;
+const unsigned char RF_SENSING                       = 0;
+const unsigned char RF_REQUEST_ADDRESS               = 1;
+const unsigned char RF_RESPONSE_ADDRESS              = 2;
+const unsigned char RF_RESPONSE_ADDRESS_RECEIVED     = 3;
+const unsigned char RF_REQUEST_BROADCAST_MODE        = 4;
+const unsigned char RF_RESPONSE_BROADCAST_MODE       = 5;
 
-//Modo
-uint8_t mode; //Indica el modo en que se encuentra el servidor
 
 //Modos en los que se encuentra el servidor de RFs
-const uint8_t NORMAL_MODE       = 0;
-const uint8_t BROADCAST_MODE    = 1;
+const uint8_t NORMAL_MODE      = 0;
+const uint8_t ACTIVATE_MODE    = 1;
 
 //Commands desde el servidor web
 const uint8_t ENABLE_NORMAL_MODE    = 0;
 const uint8_t ENABLE_BROADCAST_MODE = 1;
 
-unsigned char tempNodeIdDefaultValue[] = { '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0' };
-unsigned char defaultFloatValue[] = {'0','0','0','.','0','0'};
+unsigned char tempNodeIdDefaultValue[]  = { '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0' };
+unsigned char defaultFloatValue[]       = {'0','0','0','.','0','0'};
 ////////////////////////////////////////////////////////////////////////////////////
 
 // Configuracion del hardware de radio para raspberry pi
@@ -264,33 +344,6 @@ unsigned char defaultFloatValue[] = {'0','0','0','.','0','0'};
 //RF24 radio(RPI_V2_GPIO_P1_15, RPI_V2_GPIO_P1_24, BCM2835_SPI_SPEED_8MHZ);
 RF24 radio(22,0);
 
-
-
-/*********************************************************************************************************************/
-//Compara dos arreglos de caracteres. El parametro length indica la longitud de ambos arreglos
-//a arreglo 1
-//b arreglo 2
-//length longitud de los arreglos
-bool CompareCharArray(unsigned char * a, unsigned char * b, int length)
-{
-
-    int i = 0;
-    while(a[i] == b[i])
-    {
-        i++;
-    }
-
-    return i < length? true: false;
-}
-
-
-void CopyCharArray(unsigned char * source, unsigned char * dest, int length)
-{
-    for(int i = 0; i < length; i++)
-    {
-        dest[i] = source[i];
-    }
-}
 
 
 std::list<Address> GetAddreses(string addressesFileName)
@@ -326,7 +379,8 @@ std::list<Address> GetAddreses(string addressesFileName)
                 {
                     addressFinalIndex = splitedLine.find(',', addressInitIndex);
                     string addressSplitedLine = splitedLine.substr(addressInitIndex, addressFinalIndex - addressInitIndex);
-                    address[j] = (unsigned char)std::stoi (addressSplitedLine,nullptr,16);
+                    //address[j] = (unsigned char)std::stoi (addressSplitedLine,nullptr,10);
+                    address[j] = (unsigned char)addressSplitedLine[0];
                     addressInitIndex = addressFinalIndex + 1;
                     j++;
                 }
@@ -401,7 +455,7 @@ Node * GetNode(Node * root, unsigned char nodeId)
 //FatherNodeId     NodeId    Address
     //-1           0         0x00,0x00,0x00,0x00,0x00
     // 0           1         0x00,0x00,0x00,0x00,0x01
-Node * BuildTree(string fileName, int * nodesNumber)
+Node * BuildTree(string fileName)
 {
 
   string line;
@@ -451,9 +505,10 @@ Node * BuildTree(string fileName, int * nodesNumber)
                 {
                     addressFinalIndex = splitedLine.find(',', addressInitIndex);
                     string addressSplitedLine = splitedLine.substr(addressInitIndex, addressFinalIndex - addressInitIndex);
-                    address[j] = (unsigned char)std::stoi (addressSplitedLine,nullptr,16);
+                    //address[j] = (unsigned char)std::stoi (addressSplitedLine,nullptr,16);
+                    address[j] = (unsigned char) addressSplitedLine[0];
                     addressInitIndex = addressFinalIndex + 1;
-                    //printf("Address: %x\n", address[j]);
+                    printf("Address: %x\n", address[j]);
                     j++;
                 }
             }
@@ -462,6 +517,7 @@ Node * BuildTree(string fileName, int * nodesNumber)
             initIndex = finalIndex + 1;
         }
 
+        printf("NodeId: %d\n", nodeId);
 
         if(nodeId == 0)
         {
@@ -481,7 +537,7 @@ Node * BuildTree(string fileName, int * nodesNumber)
             
         }
 
-        (*nodesNumber)++;
+        nodesCount++;
         
     }
 
@@ -521,7 +577,7 @@ void PrintTree(Node * root, int format)
 //Obtiene una direccion libre
 Address GetAvailableAddress()
 {
-    list<Address>::iterator it = std::find_if(addresses.begin(), addresses.end(), [] (const Address& a) { return a.isAssigned == true; });
+    list<Address>::iterator it = std::find_if(addresses.begin(), addresses.end(), [] (const Address& a) { return a.isAssigned == false; });
     return *it;
 }
 
@@ -550,26 +606,24 @@ Address GetDefaultReadAddress()
 ///
 // Establece los valores a una estrutura de tipo dataStruct
 //
-dataStruct setDataForSend(unsigned char fromNodeId, unsigned char toNodeId, unsigned char operationType, char value, unsigned char * floatValue, bool onOffValue)
+void setDataForSend(unsigned char fromNodeId, unsigned char toNodeId, unsigned char operationType, char value, unsigned char * floatValue, bool onOffValue)
 {
-    dataStruct data;
-    data.toNodeId       = toNodeId;
-    data.operationType  = operationType;
-    data.fromNodeId     = fromNodeId;
-    data.value          = value;
-    data.onOffValue     = onOffValue;
+    
+    dataForSend.toNodeId       = toNodeId;
+    dataForSend.operationType  = operationType;
+    dataForSend.fromNodeId     = fromNodeId;
+    dataForSend.value          = value;
+    dataForSend.onOffValue     = onOffValue;
     if(floatValue != NULL)
     {
-        CopyCharArray(floatValue, data.floatValue, 6);
+        CopyCharArray(floatValue, dataForSend.floatValue, 6);
     }
     else
     {
         unsigned char defaultValue[] = { '0', '0', '0', '0', '0', '0'};
-        CopyCharArray(defaultValue, data.floatValue, 6);
+        CopyCharArray(defaultValue, dataForSend.floatValue, 6);
     }
     
-    
-    return data;
 }
 
 
@@ -593,7 +647,7 @@ bool sendData(dataStruct data)
 // }
 
 
-void setupRadio(uint8_t readAddress[], uint8_t writeAddress[], size_t payloadSize, uint8_t channel, rf24_datarate_e dataRate)
+void setupRadio(uint8_t **readAddresses, int childsCount, uint8_t writeAddress[], size_t payloadSize, uint8_t channel, rf24_datarate_e dataRate)
 {
     //Se configura y se inicializa el radio
     radio.begin();
@@ -611,8 +665,21 @@ void setupRadio(uint8_t readAddress[], uint8_t writeAddress[], size_t payloadSiz
     radio.setChannel(channel);
 
     radio.openWritingPipe(writeAddress);
-
-    radio.openReadingPipe(1, readAddress);
+    if(childsCount == 0)
+    {
+        for(int i = 1; i <= 5; i++)
+        {
+            radio.openReadingPipe(i, 0xffffffffff);
+        }
+    }
+    else
+    {
+        for(int i = 1; i <= childsCount; i++)
+        {
+            radio.openReadingPipe(i, readAddresses[i - 1]);
+        }    
+    }
+    
 
     radio.printDetails();
 }
@@ -622,7 +689,6 @@ void activeNode(size_t payloadSize, unsigned long maxtime)
     //Operacion tipo 0 indica ninguna operacion por hacer
     syncDataForSend.operationType = 0;
     
-    unsigned char tempNodeId[13] = { '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0' };
     unsigned long initProcess = millis();
     while(millis() - initProcess < maxtime)
     {
@@ -648,13 +714,13 @@ void activeNode(size_t payloadSize, unsigned long maxtime)
              printf("Se recibe valor: (%d)...\n", syncDataForReceive.operationType);
              //Si el tempNodeId tiene el valor por defecto, entonces es la primera vez que se accede a el metodo
              // entonces se copia  el valor del nodeid temporal que esta solicitando una direccion.
-             if(CompareCharArray(tempNodeId, tempNodeIdDefaultValue, 13))
+             if(CompareCharArray(tempNodeIdForActivate, tempNodeIdDefaultValue, 13))
              {
-                    CopyCharArray(syncDataForReceive.tempNodeId, tempNodeId, 13);
+                    CopyCharArray(syncDataForReceive.tempNodeId, tempNodeIdForActivate, 13);
              }
              //Con esto nos aseguramos que los mensajes que se reciban solo se procecen aquellos del nodo
              //que solicito (del quien se recibio mensaje primero)
-             if(CompareCharArray(syncDataForReceive.tempNodeId, tempNodeId, 13))
+             if(CompareCharArray(syncDataForReceive.tempNodeId, tempNodeIdForActivate, 13))
              {
                 
                 //Si el nodo esta solicitando una direccion
@@ -664,27 +730,33 @@ void activeNode(size_t payloadSize, unsigned long maxtime)
                     //del nodo
                     Address writeAddress = GetAvailableAddress();
 
+                    // Se establece la operacion de respuesta de direccion
+                    syncDataForSend.operationType   = RF_RESPONSE_ADDRESS;
+                    CopyCharArray(syncDataForReceive.tempNodeId,syncDataForSend.tempNodeId, 13);
+                    //Se copia la direccion de escritura del nodo
+                    CopyCharArray(writeAddress.address, syncDataForSend.address, 5);
+
                     // Cuando el valor de  value es igual a cero, significa que este mensaje no ha sido retransmitido
                     //por lo tanto este nodo esta cerca del nodo cero (servidor)
                     if(syncDataForReceive.fatherId ==  0)
                     {
-                        //La direccion de escritura obtenida se guarda como un nodo en las direcciones de lectura
-                        //del nodo del servidor
-                        ////
-
-                        syncDataForSend.fatherId        = 0;
-                        // Se establece la operacion de respuesta de direccion
-                        syncDataForSend.operationType   = RF_RESPONSE_ADDRESS;
-                        CopyCharArray(syncDataForReceive.tempNodeId,syncDataForSend.tempNodeId, 13);
-                        //Se copia la direccion de escritural del nodo
-                        CopyCharArray(writeAddress.address, syncDataForSend.address, 5);
-
+                        syncDataForSend.fatherId        = nodesCount;
+                        // Se guarda la direccion de lectura y se envia en la variable address2
                         CopyCharArray(root->rfNode.address, syncDataForSend.address2, 5);
+                        nodeActivationPending = new Node(nodesCount, writeAddress.address);
+                        root->AddChild(nodeActivationPending->rfNode.nodeId, nodeActivationPending->rfNode.address);
+
                     }
-                    else
+                    else // El nodo esta cerca de otro nodo, entonces se toma como padre del nodo
                     {
                         
                     }
+                }
+                // El nodo responde que ya tiene la direccion guardada, esta respuesta tambien puede llegar
+                // a el servidor en modo operativo normal
+                else if(syncDataForReceive.operationType == RF_RESPONSE_ADDRESS_RECEIVED)
+                {
+
                 }
              }
         }
@@ -697,10 +769,158 @@ void activeNode(size_t payloadSize, unsigned long maxtime)
 
 }
 
+void AddLineToFile(char * fileName, string newLine)
+{
+    std::ofstream file(fileName, std::ios_base::app | std::ios_base::out);
+    file << newLine << "\n";
+    file.close();
+}
+
+
+//Actualiza el archivo
+bool updateFile(char * fileName, string oldLine, string newLine)
+{
+    string readLine;
+    ifstream file (fileName);
+    ofstream ofile ( "temp.txt" );
+    while (!file.eof())
+    {
+        getline(file, readLine);
+        if (readLine == oldLine)
+        {
+            ofile << newLine << endl;
+        }
+        else
+            ofile << readLine << endl;
+    }
+
+    file.close();
+    ofile.close();
+    remove(fileName);
+    return rename("temp.txt", fileName);
+}
+
+//
+string ConvertAddressToCommasFormat(unsigned char * addressCharArray)
+{
+    string address ((char *)addressCharArray);
+    string addressWithCommas = "";
+    int length = (int)address.size();
+    for(int i = 0; i < length; i++)
+    {
+        char characterWithComma[] = { address[i], ',', 0};
+        string characterWithCommaString (characterWithComma);
+        addressWithCommas.append(characterWithCommaString);
+    }
+
+    return addressWithCommas;
+}
+
+
+void disableAddress(char fileName[], unsigned char * addressCharArray)
+{
+    string address ((char *)addressCharArray);
+    string addressWithCommas = "";
+    int length = (int)address.size();
+    for(int i = 0; i < length; i++)
+    {
+        char characterWithComma[] = { address[i], ',', 0};
+        string characterWithCommaString (characterWithComma);
+        addressWithCommas.append(characterWithCommaString);
+    }
+
+    string disabledString   = " 1";
+    string enabledString    = " 0";
+    string newLine = addressWithCommas + disabledString;
+    string oldLine = addressWithCommas + enabledString;
+
+    updateFile(fileName, oldLine, newLine);
+}
+
+
+void saveNode(char fileName[], unsigned char nodeId, unsigned char fatherId, unsigned char * addressCharArray)
+{
+    string nodeIdString = std::to_string(nodeId);
+    string fatherIdString = std::to_string(fatherId);
+    string addressStringWithCommasFormat = ConvertAddressToCommasFormat(addressCharArray);
+    string newLine = fatherIdString + " " + nodeIdString + " " + addressStringWithCommasFormat;
+    AddLineToFile(fileName, newLine);
+    
+}
+
+
+
 void PerformOperation(dataStruct data)
 {
+    switch (mode)
+    {
+        case ACTIVATE_MODE :
+                    switch (data.operationType)
+                    {
 
+                        case RF_SENSING:
+                            
+                            //Si existe un nodo que estaba en modo activacion, entonces cuando se active empezara a sensar, por lo tanto hay que
+                            // preguntar si el nodo que envia el mensaje es el que se estaba activando, y si es asi avisar a el servidor a que termine
+                            // el proceso de activacion
+                            if(nodeActivationPending != NULL && nodeActivationPending->rfNode.nodeId == data.fromNodeId)
+                            {
+                                //Se guarda el nodo
+                                saveNode(nodesFileName, nodeActivationPending->rfNode.nodeId, fatherIdOfTheNodeActivationPending, nodeActivationPending->rfNode.address);
+                                
+                                //Se deshabilita la direccion que ocupo el nodo
+                                disableAddress(addressesFileName, nodeActivationPending->rfNode.address);
+
+                                // Se reestablece el valor de tempNodeIdForActivate
+                                CopyCharArray(tempNodeIdDefaultValue, tempNodeIdForActivate, 13);
+
+                                // IMPORTANTE, EL MISMO SERVIDOR RF ESTA CAMBIANDO EL MODO EN QUE OPERA ASIGNANDO EL COMANDO
+                                // ES IMPORTANTE AVISAR A EL SERVIDOR WEB, ESTO LO HACE PARA SALIR DEL ESTADO ACTIVATE_MODE Y NO GUARDAR DE NUEVO EL NODO
+                                command = ENABLE_NORMAL_MODE;
+                                //SendMessageToWebServer();
+                            }
+
+                            
+                        break;
+
+                        case RF_RESPONSE_ADDRESS_RECEIVED:
+                        
+                            //Automaticamente se pasa a modo normal
+                            //mode = NORMAL_MODE;
+                            //El id del nodo temporal se vuelve
+                            //CopyCharArray(tempNodeIdDefaultValue, tempNodeIdForActivate, 13);
+
+                            // Avisar a el servidor que el nodo esta activado y que se pasa a estado normal
+                        break;
+
+                        //Se recibe una respuesta de un nodo que ya esta en nodo broadcast, entonces, se debe de registrar
+                        // el node que se esta en modo broadcast
+                        case RF_RESPONSE_BROADCAST_MODE:
+                        
+                        break;
+                        
+
+                        default:
+                            break;
+                    }
+                    break;
+        
+        
+        case NORMAL_MODE:
+        default:
+                switch (data.operationType)
+                {
+                    case RF_SENSING:
+                    //SendData to server
+                    break;
+                
+                default:
+                    break;
+                }
+                break;
+    }
 }
+
 
 
 void normalOperation(unsigned int delayTime)
@@ -727,7 +947,6 @@ void normalOperation(unsigned int delayTime)
     else
     {
         radio.read(&dataForReceive, sizeof(dataStruct));
-        PerformOperation(dataForReceive);
         printf("Se recibe valor: (%d)...\n", dataForReceive.value);
     }
     
@@ -748,21 +967,26 @@ void normalOperationWithTimeout(unsigned int delayTime, unsigned long timeout)
 //Direcciona los comandos hacia la tarea que se debe ejecutar de acuerdo a el estado en que se encuetra el servidor
 void AddressCommand(uint8_t command)
 {
+    unsigned char ** readAddresses = new unsigned char*[1];
+
     switch (command)
     {
         case ENABLE_BROADCAST_MODE:
             switch (mode)
             {
-                case BROADCAST_MODE:
+                case ACTIVATE_MODE:
                 case NORMAL_MODE:
                     cout << "Activate node mode on\n";
-                    setupRadio(GetDefaultReadAddress().address, GetDefaultWriteAddress().address, sizeof(syncStruct), 120, RF24_250KBPS);
+                    readAddresses[0] = GetDefaultReadAddress().address;
+                    setupRadio(readAddresses, 1, GetDefaultWriteAddress().address, sizeof(syncStruct), 120, RF24_250KBPS);
                     activeNode(sizeof(syncStruct), 5000);
                     cout << "Activate node mode off\n";
                     cout << "Activate normal mode on\n";
-                    setupRadio(GetDefaultReadAddress().address, GetDefaultWriteAddress().address, sizeof(dataStruct), 120, RF24_250KBPS);
+                    setupRadio(root->GetChildsAddresses(), root->GetChildsCount(), root->rfNode.address, sizeof(dataStruct), 120, RF24_250KBPS);
+                    setDataForSend(0, 1, 150, '1', NULL, false);
                     normalOperationWithTimeout(50, 5000);
-                    mode = BROADCAST_MODE;
+                    mode = ACTIVATE_MODE;
+                    PerformOperation(dataForReceive);
                     cout << "Activate normal mode off\n";
                 break;
         
@@ -775,12 +999,13 @@ void AddressCommand(uint8_t command)
         case ENABLE_NORMAL_MODE:
             switch (mode)
             {
-                case BROADCAST_MODE:
-                    setupRadio(GetDefaultReadAddress().address, GetDefaultWriteAddress().address, sizeof(dataStruct), 120, RF24_250KBPS);
+                case ACTIVATE_MODE:
+                    setupRadio(root->GetChildsAddresses(), root->GetChildsCount(), root->rfNode.address, sizeof(dataStruct), 120, RF24_250KBPS);
                     mode = NORMAL_MODE;
                 case NORMAL_MODE:
-                    setDataForSend(root->rfNode.nodeId, NODEID_FOR_BROADCAST, RF_JUST_DETECTING_OPERATION, 0, defaultFloatValue , false);
+                    setDataForSend(root->rfNode.nodeId, NODEID_FOR_BROADCAST, RF_SENSING, 0, defaultFloatValue , false);
                     normalOperation(50);
+                    PerformOperation(dataForReceive);
                     mode = NORMAL_MODE;
                 break;
             
@@ -822,16 +1047,17 @@ int main(int argc, char** argv)
     cout << "Server init\n";
     mode = NORMAL_MODE;
     // Se obtienen las direcciones que se usaran 
-    addresses = GetAddreses("addresses.txt");
+    addresses = GetAddreses(addressesFileName);
     //printAdresses();
     
-    int nodesCount = 0;
-    root = BuildTree("nodes.txt", &nodesCount);
-    
-    // Por defecto, el servidor se establece en modo normal operativo
-    uint8_t command = ENABLE_NORMAL_MODE;
-    // Se configura el radio en modo normal
-    setupRadio(GetDefaultReadAddress().address, GetDefaultWriteAddress().address, sizeof(dataStruct), 120, RF24_250KBPS);
+    root = BuildTree(nodesFileName);
+    //root->rfNode.PrintAddress(0);
+     command = ENABLE_NORMAL_MODE;
+
+     //command = ENABLE_BROADCAST_MODE;
+
+     // Se configura el radio en modo normal (sensando) operativo
+     setupRadio(root->GetChildsAddresses(), root->GetChildsCount(), root->rfNode.address, sizeof(dataStruct), 120, RF24_250KBPS);
     
     while(true)
     {
@@ -841,52 +1067,3 @@ int main(int argc, char** argv)
     
     return 0;
 }
-
-
-    // if(argc == 2)
-    // {
-    //     string mode = argv[1];
-    //     if(mode.compare("0") == 0) //Se activa en modo activar nodos
-    //     {
-           
-
-    //     }
-    //     else if(mode.compare("1") == 0) //Se activa modo normal
-    //     {
-    //         // Se configura el radio para operar en modo normal
-    //         setupRadio(GetDefaultReadAddress().address, GetDefaultWriteAddress().address, sizeof(dataStruct), 120, RF24_250KBPS);
-    //         setDataForSend(root->rfNode.nodeId, nodeIdForBroadcast, JUST_DETECTING_OPERATION, 0, defaultFloatValue , false);
-    //         while (true) 
-    //         {
-
-    //                 radio.stopListening();
-    //                 radio.write(&dataForSend, sizeof(dataStruct));            
-    //                 radio.startListening();        
-    //                 unsigned long init = millis();
-    //                 bool timeout = false;
-                    
-    //                 while (!radio.available() && !timeout) 
-    //                 {
-    //                     if (millis() - init > 300) 
-    //                     {
-    //                         timeout = true;
-    //                     }
-
-    //                 }
-                    
-    //                 if(timeout)
-    //                 {
-                        
-    //                 }
-    //                 else
-    //                 {
-    //                     radio.read(&dataForReceive, sizeof(dataStruct));
-    //                     PerformOperation(dataForReceive);
-    //                     printf("Se recibe valor: (%d)...\n", dataForReceive.value);
-    //                 }
-                    
-    //                 delay(100) //Delay after payload responded to, minimize RPi CPU time
-
-    //         }
-    //     }
-    // }
